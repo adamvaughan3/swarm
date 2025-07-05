@@ -14,6 +14,11 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+var (
+	HEARTBEAT_PERIOD = 10 // seconds
+	RETRY_PERIOD     = 5  // seconds
+)
+
 type NodeConnection struct {
 	Addr       string
 	ClientConn *grpc.ClientConn
@@ -27,13 +32,15 @@ type NodeConnectionManager struct {
 	pendingReconnects map[string]struct{}
 	stopChans         map[string]chan struct{}
 	dialOptions       []grpc.DialOption
+	eventBus          *EventBus
 }
 
-func NewNodeConnectionManager() *NodeConnectionManager {
+func NewNodeConnectionManager(eventBus *EventBus) *NodeConnectionManager {
 	return &NodeConnectionManager{
 		connections:       make(map[string]*NodeConnection),
 		pendingReconnects: make(map[string]struct{}),
 		stopChans:         make(map[string]chan struct{}),
+		eventBus:          eventBus,
 		dialOptions: []grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -41,6 +48,7 @@ func NewNodeConnectionManager() *NodeConnectionManager {
 				Timeout:             5 * time.Second,
 				PermitWithoutStream: true,
 			}),
+			grpc.WithStatsHandler(NewConnStatsHandler(eventBus)),
 		},
 	}
 }
@@ -49,7 +57,6 @@ func (m *NodeConnectionManager) AddNode(addr string) error {
 	m.mu.Lock()
 	if _, exists := m.connections[addr]; exists {
 		m.mu.Unlock()
-		log.Printf("connection already exists")
 		return nil
 	}
 	m.mu.Unlock()
@@ -85,6 +92,9 @@ func (m *NodeConnectionManager) AddNode(addr string) error {
 	m.mu.Unlock()
 
 	go m.monitorHealth(node)
+
+	m.eventBus.Publish(NodeConnectedEvent{Id: "default", Addr: addr})
+
 	return nil
 }
 
@@ -102,10 +112,12 @@ func (m *NodeConnectionManager) RemoveNode(addr string) {
 		delete(m.stopChans, addr)
 	}
 	delete(m.pendingReconnects, addr)
+
+	m.eventBus.Publish(NodeDisconnectedEvent{Id: "default", Addr: addr})
 }
 
 func (m *NodeConnectionManager) monitorHealth(node *NodeConnection) {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(time.Duration(HEARTBEAT_PERIOD) * time.Second)
 	defer ticker.Stop()
 	client := proto.NewNodeControlClient(node.ClientConn)
 	for range ticker.C {
@@ -133,7 +145,7 @@ func (m *NodeConnectionManager) retryConnection(addr string, stop chan struct{})
 		select {
 		case <-stop:
 			return
-		case <-time.After(5 * time.Second):
+		case <-time.After(time.Duration(RETRY_PERIOD) * time.Second):
 			log.Printf("Retrying connection to %s", addr)
 			if err := m.AddNode(addr); err == nil {
 				log.Printf("Successfully reconnected to %s", addr)

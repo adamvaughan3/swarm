@@ -4,7 +4,7 @@ import (
 	"container/heap"
 )
 
-type Topology map[string]map[string]int
+type Topology map[string]map[string]int // reporting_node -> [ neighbor_id -> cost ]
 
 type Path struct {
 	Cost int

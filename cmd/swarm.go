@@ -14,7 +14,9 @@ func main() {
 	id := flag.String("id", "node1", "unique node identifier")
 	flag.Parse()
 
-	connMgr := swarm.NewNodeConnectionManager()
+	eventBus := swarm.NewEventBus()
+
+	connMgr := swarm.NewNodeConnectionManager(eventBus)
 	go func() {
 		if err := swarm.StartServer(*addr, connMgr); err != nil {
 			log.Fatal(err)
