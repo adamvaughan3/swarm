@@ -67,7 +67,6 @@ func (m *NodeConnectionManager) AddNode(addr string) error {
 		cancel()
 		return err
 	}
-
 	// Verify node is responsive using Ping
 	client := proto.NewNodeControlClient(conn)
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 3*time.Second)

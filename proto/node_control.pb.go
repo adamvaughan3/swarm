@@ -25,7 +25,7 @@ const (
 type NodeInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -67,11 +67,11 @@ func (x *NodeInfo) GetId() string {
 	return ""
 }
 
-func (x *NodeInfo) GetAddress() string {
+func (x *NodeInfo) GetPort() int32 {
 	if x != nil {
-		return x.Address
+		return x.Port
 	}
-	return ""
+	return 0
 }
 
 type RegisterResponse struct {
@@ -130,10 +130,10 @@ var File_proto_node_control_proto protoreflect.FileDescriptor
 
 const file_proto_node_control_proto_rawDesc = "" +
 	"\n" +
-	"\x18proto/node_control.proto\x12\x05swarm\x1a\x1bgoogle/protobuf/empty.proto\"4\n" +
+	"\x18proto/node_control.proto\x12\x05swarm\x1a\x1bgoogle/protobuf/empty.proto\".\n" +
 	"\bNodeInfo\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\aaddress\x18\x02 \x01(\tR\aaddress\"F\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\"F\n" +
 	"\x10RegisterResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage2\x7f\n" +
