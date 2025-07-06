@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"log"
 	"strings"
 	"swarm"
 	"time"
@@ -14,23 +13,16 @@ func main() {
 	id := flag.String("id", "node1", "unique node identifier")
 	flag.Parse()
 
-	eventBus := swarm.NewEventBus()
+	parts := strings.Split(*peers, ",")
 
-	connMgr := swarm.NewNodeConnectionManager(eventBus)
-	go func() {
-		if err := swarm.StartServer(*port, connMgr); err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	time.Sleep(2 * time.Second)
-
-	if *peers != "" {
-		for _, peer := range strings.Split(*peers, ",") {
-			peer = strings.TrimSpace(peer)
-			go swarm.RegisterWithPeer(peer, *id, *port)
-		}
+	var peerList []string
+	for _, part := range parts {
+		peerList = append(peerList, strings.TrimSpace(part))
 	}
 
-	select {}
+	server := swarm.NewServer(*id, *port)
+	manager := swarm.NewConnectionManager(server, peerList, 5*time.Second, 10*time.Second)
+	manager.Start()
+
+	select {} // Run forever
 }

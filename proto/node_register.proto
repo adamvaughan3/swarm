@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package swarm;
+
+option go_package = "./proto";
+
+service Register {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Ack(AckRequest) returns (AckResponse);
+}
+
+message RegisterRequest {
+  string id = 1;
+  int32 listen_port = 2;
+  string handshake_id = 3;
+}
+
+message RegisterResponse {
+  string message = 1;
+}
+
+message AckRequest {
+  string id = 1;
+  int32 listen_port = 2;
+  string handshake_id = 3;
+}
+
+message AckResponse {
+  string message = 1;
+}

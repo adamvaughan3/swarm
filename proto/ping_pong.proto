@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package swarm;
+
+option go_package = "./proto";
+
+service PingPong {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Pong(PongRequest) returns (PongResponse);
+}
+
+message PingRequest {
+  string id = 1;
+  int32 listen_port = 2;
+  string handshake_id = 3;
+}
+
+message PingResponse {
+  string message = 1;
+}
+
+message PongRequest {
+  string id = 1;
+  int32 listen_port = 2;
+  string handshake_id = 3;
+}
+
+message PongResponse {
+  string message = 1;
+}
