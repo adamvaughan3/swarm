@@ -15,31 +15,31 @@ import (
 	"google.golang.org/grpc/peer"
 )
 
+const (
+	RESPONSE_TIMEOUT = 3
+)
+
+type PeerInfo struct {
+	Id      string
+	Address string
+}
+
 type Server struct {
 	pb.UnimplementedPingPongServer
-	selfID      string
+	selfId      string
 	selfPort    int
+	eventBus    *EventBus
 	mu          sync.Mutex
 	pongConfirm map[string]chan struct{}
 }
 
-func NewServer(id string, port int) *Server {
+func NewServer(id string, port int, eventBus *EventBus) *Server {
 	return &Server{
-		selfID:      id,
+		selfId:      id,
 		selfPort:    port,
+		eventBus:    eventBus,
 		pongConfirm: make(map[string]chan struct{}),
 	}
-}
-
-func StartPingPongServer(id string, port int) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return err
-	}
-	grpcServer := grpc.NewServer()
-	pb.RegisterPingPongServer(grpcServer, NewServer(id, port))
-	log.Printf("Listening on %d", port)
-	return grpcServer.Serve(lis)
 }
 
 func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
@@ -63,9 +63,9 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 
 		client := pb.NewPingPongClient(conn)
 		_, err = client.Pong(context.Background(), &pb.PongRequest{
-			Id:          s.selfID,
+			Id:          s.selfId,
 			ListenPort:  int32(s.selfPort),
-			HandshakeId: req.HandshakeId, // pass back same handshake ID
+			HandshakeId: req.HandshakeId,
 		})
 		if err != nil {
 			log.Printf("Failed to send Pong to %s: %v", target, err)
@@ -85,45 +85,43 @@ func (s *Server) Pong(ctx context.Context, req *pb.PongRequest) (*pb.PongRespons
 	s.mu.Unlock()
 
 	if !ok {
-		log.Printf("[%s] No pending handshake found for %s", s.selfID, req.HandshakeId)
+		log.Printf("[%s] No pending handshake found for %s", s.selfId, req.HandshakeId)
 	}
 	return &pb.PongResponse{Message: "ack"}, nil
 }
 
-func (s *Server) PingWithHandshake(peerAddr string) bool {
-	handshakeID := fmt.Sprintf("%d", time.Now().UnixNano())
+func (s *Server) TestConn(peerAddr string) bool {
+	handshakeId := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	ch := make(chan struct{})
 	s.mu.Lock()
-	s.pongConfirm[handshakeID] = ch
+	s.pongConfirm[handshakeId] = ch
 	s.mu.Unlock()
 
 	conn, err := grpc.NewClient(peerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Printf("[%s] Dial failed: %v", s.selfID, err)
+		log.Printf("[%s] Dial failed: %v", s.selfId, err)
 		return false
 	}
 	defer conn.Close()
 
 	client := pb.NewPingPongClient(conn)
 	_, err = client.Ping(context.Background(), &pb.PingRequest{
-		Id:          s.selfID,
+		Id:          s.selfId,
 		ListenPort:  int32(s.selfPort),
-		HandshakeId: handshakeID,
+		HandshakeId: handshakeId,
 	})
 	if err != nil {
-		log.Printf("[%s] Ping RPC failed: %v", s.selfID, err)
 		return false
 	}
 
 	select {
 	case <-ch:
-		// log.Printf("[%s] Successful handshake with %s", s.selfID, peerAddr)
 		return true
-	case <-time.After(3 * time.Second):
-		log.Printf("[%s] No Pong from %s within timeout", s.selfID, peerAddr)
+	case <-time.After(RESPONSE_TIMEOUT * time.Second):
+		log.Printf("[%s] No Pong from %s within timeout", s.selfId, peerAddr)
 		s.mu.Lock()
-		delete(s.pongConfirm, handshakeID)
+		delete(s.pongConfirm, handshakeId)
 		s.mu.Unlock()
 		return false
 	}

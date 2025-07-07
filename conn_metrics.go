@@ -23,7 +23,7 @@ func NewConnStatsHandler(bus *EventBus) *connStatsHandler {
 }
 
 func (h *connStatsHandler) TagRPC(ctx context.Context, info *stats.RPCTagInfo) context.Context {
-	if info.FullMethodName == "/swarm.NodeControl/Ping" {
+	if info.FullMethodName == "/swarm.PingPong/Ping" {
 		return context.WithValue(ctx, ctxKeyPingTiming{}, pingTiming{start: time.Now()})
 	}
 	return ctx
@@ -38,7 +38,6 @@ func (h *connStatsHandler) HandleRPC(ctx context.Context, s stats.RPCStats) {
 
 			// Publish the event
 			h.bus.Publish(PingLatencyEvent{
-				Id:      "default",
 				Addr:    addr,
 				Latency: latency,
 			})
@@ -53,8 +52,6 @@ func (h *connStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) co
 func (h *connStatsHandler) HandleConn(ctx context.Context, _ stats.ConnStats) {
 	// no-op for connection events
 }
-
-// --- Helper to extract peer address ---
 
 func peerFromContext(ctx context.Context) string {
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {

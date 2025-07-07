@@ -12,20 +12,26 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+const (
+	CONN_RETRY_COUNT int = 3
+)
+
 type ConnectionManager struct {
 	server        *Server
-	peers         []string // List of all known peer addresses
+	addressBook   []string // List of all known peer addresses
 	activeConns   map[string]*grpc.ClientConn
+	eventBus      *EventBus
 	mu            sync.Mutex
 	recheckPeriod time.Duration
 	pingInterval  time.Duration
 }
 
-func NewConnectionManager(server *Server, peers []string, recheckPeriod, pingInterval time.Duration) *ConnectionManager {
+func NewConnectionManager(id string, listenPort int, peers []string, eventBus *EventBus, recheckPeriod, pingInterval time.Duration) *ConnectionManager {
 	return &ConnectionManager{
-		server:        server,
-		peers:         peers,
+		server:        NewServer(id, listenPort, eventBus),
+		addressBook:   peers,
 		activeConns:   make(map[string]*grpc.ClientConn),
+		eventBus:      eventBus,
 		recheckPeriod: recheckPeriod,
 		pingInterval:  pingInterval,
 	}
@@ -34,13 +40,15 @@ func NewConnectionManager(server *Server, peers []string, recheckPeriod, pingInt
 func (cm *ConnectionManager) Start() {
 	go func() {
 		lis, _ := net.Listen("tcp", fmt.Sprintf(":%d", cm.server.selfPort))
-		grpcServer := grpc.NewServer()
+		grpcServer := grpc.NewServer(
+			grpc.StatsHandler(NewConnStatsHandler(cm.eventBus)),
+		)
 		pb.RegisterPingPongServer(grpcServer, cm.server)
 		log.Printf("Listening on %d", cm.server.selfPort)
 		grpcServer.Serve(lis)
 	}()
 
-	for _, peer := range cm.peers {
+	for _, peer := range cm.addressBook {
 		go cm.monitorPeer(peer)
 	}
 }
@@ -52,7 +60,7 @@ func (cm *ConnectionManager) monitorPeer(peerAddr string) {
 		cm.mu.Unlock()
 
 		if !connected {
-			success := cm.server.PingWithHandshake(peerAddr)
+			success := cm.server.TestConn(peerAddr)
 			if success {
 				conn, err := grpc.NewClient(peerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				if err != nil {
@@ -65,7 +73,8 @@ func (cm *ConnectionManager) monitorPeer(peerAddr string) {
 
 				log.Printf("[CM] Connected to %s", peerAddr)
 
-				// Start a monitor loop for this connection
+				cm.eventBus.Publish(NodeConnectedEvent{Addr: peerAddr})
+
 				go func() {
 					cm.keepAlive(peerAddr)
 				}()
@@ -80,29 +89,27 @@ func (cm *ConnectionManager) keepAlive(peerAddr string) {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		ok := cm.server.PingWithHandshake(peerAddr)
-		if !ok {
-			log.Printf("[CM] Connection to %s failed ping, closing", peerAddr)
-			cm.mu.Lock()
-			if conn, exists := cm.activeConns[peerAddr]; exists {
-				conn.Close()
-				delete(cm.activeConns, peerAddr)
+		for retry := range CONN_RETRY_COUNT {
+			ok := cm.server.TestConn(peerAddr)
+			if !ok {
+				if retry != CONN_RETRY_COUNT-1 {
+					log.Printf("[CM] Connection to %s failed ping, %d retries left", peerAddr, CONN_RETRY_COUNT-retry-1)
+					time.Sleep(2 * time.Second)
+					continue
+				}
+				log.Printf("[CM] Connection to %s failed ping, closing connection", peerAddr)
+				cm.mu.Lock()
+				if conn, exists := cm.activeConns[peerAddr]; exists {
+					conn.Close()
+					delete(cm.activeConns, peerAddr)
+					cm.eventBus.Publish(NodeDisconnectedEvent{Addr: peerAddr})
+				}
+				cm.mu.Unlock()
+				return
+			} else {
+				log.Printf("[CM] Heartbeat successful to %s", peerAddr)
+				break
 			}
-			cm.mu.Unlock()
-			return
 		}
 	}
-}
-
-// GetActiveConnections returns a copy of active connections
-func (cm *ConnectionManager) GetActiveConnections() map[string]*grpc.ClientConn {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	// Return a copy to avoid external mutation
-	copy := make(map[string]*grpc.ClientConn)
-	for k, v := range cm.activeConns {
-		copy[k] = v
-	}
-	return copy
 }

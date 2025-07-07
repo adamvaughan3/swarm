@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+var (
+	BUS_SIZE = 10
+)
+
 type EventBus struct {
 	subscribers map[string][]chan Event
 	mu          sync.RWMutex
@@ -19,7 +23,7 @@ func NewEventBus() *EventBus {
 }
 
 func (bus *EventBus) Subscribe(eventType string) <-chan Event {
-	ch := make(chan Event, 10)
+	ch := make(chan Event, BUS_SIZE)
 	bus.mu.Lock()
 	bus.subscribers[eventType] = append(bus.subscribers[eventType], ch)
 	bus.mu.Unlock()
@@ -61,7 +65,6 @@ type Event interface {
 }
 
 type NodeConnectedEvent struct {
-	Id   string
 	Addr string
 }
 
@@ -70,11 +73,10 @@ func (e NodeConnectedEvent) Type() string {
 }
 
 func (e NodeConnectedEvent) String() string {
-	return fmt.Sprintf("{ Id: %s, Addr: %s }", e.Id, e.Addr)
+	return fmt.Sprintf("{Addr: %s}", e.Addr)
 }
 
 type NodeDisconnectedEvent struct {
-	Id   string
 	Addr string
 }
 
@@ -83,11 +85,11 @@ func (e NodeDisconnectedEvent) Type() string {
 }
 
 func (e NodeDisconnectedEvent) String() string {
-	return fmt.Sprintf("{ Id: %s, Addr: %s }", e.Id, e.Addr)
+	return fmt.Sprintf("{Addr: %s}", e.Addr)
 }
 
 type PingLatencyEvent struct {
-	Id string
+	Id      string
 	Addr    string
 	Latency time.Duration
 }
