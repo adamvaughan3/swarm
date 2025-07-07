@@ -20,7 +20,7 @@ const (
 )
 
 type PeerInfo struct {
-	Id      string
+	Id   string
 	Address string
 }
 
@@ -30,7 +30,7 @@ type Server struct {
 	selfPort    int
 	eventBus    *EventBus
 	mu          sync.Mutex
-	pongConfirm map[string]chan struct{}
+	pongConfirm map[string]chan *PeerInfo
 }
 
 func NewServer(id string, port int, eventBus *EventBus) *Server {
@@ -38,18 +38,14 @@ func NewServer(id string, port int, eventBus *EventBus) *Server {
 		selfId:      id,
 		selfPort:    port,
 		eventBus:    eventBus,
-		pongConfirm: make(map[string]chan struct{}),
+		pongConfirm: make(map[string]chan *PeerInfo),
 	}
 }
 
 func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
-	peerInfo, ok := peer.FromContext(ctx)
-	if !ok {
-		return nil, fmt.Errorf("failed to extract peer")
-	}
-	host, _, err := net.SplitHostPort(peerInfo.Addr.String())
+	host, err := addressFromCtx(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("invalid peer address")
+		return nil, err
 	}
 	target := net.JoinHostPort(host, fmt.Sprintf("%d", req.ListenPort))
 
@@ -76,9 +72,19 @@ func (s *Server) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRespons
 }
 
 func (s *Server) Pong(ctx context.Context, req *pb.PongRequest) (*pb.PongResponse, error) {
+	host, err := addressFromCtx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	peerAddr := net.JoinHostPort(host, fmt.Sprintf("%d", req.ListenPort))
+
 	s.mu.Lock()
 	ch, ok := s.pongConfirm[req.HandshakeId]
 	if ok {
+		ch <- &PeerInfo{
+			Id:   req.Id,
+			Address: peerAddr,
+		}
 		close(ch)
 		delete(s.pongConfirm, req.HandshakeId)
 	}
@@ -90,10 +96,10 @@ func (s *Server) Pong(ctx context.Context, req *pb.PongRequest) (*pb.PongRespons
 	return &pb.PongResponse{Message: "ack"}, nil
 }
 
-func (s *Server) TestConn(peerAddr string) bool {
+func (s *Server) TestConn(peerAddr string) (*PeerInfo, bool) {
 	handshakeId := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	ch := make(chan struct{})
+	ch := make(chan *PeerInfo)
 	s.mu.Lock()
 	s.pongConfirm[handshakeId] = ch
 	s.mu.Unlock()
@@ -101,7 +107,7 @@ func (s *Server) TestConn(peerAddr string) bool {
 	conn, err := grpc.NewClient(peerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Printf("[%s] Dial failed: %v", s.selfId, err)
-		return false
+		return nil, false
 	}
 	defer conn.Close()
 
@@ -112,17 +118,29 @@ func (s *Server) TestConn(peerAddr string) bool {
 		HandshakeId: handshakeId,
 	})
 	if err != nil {
-		return false
+		return nil, false
 	}
 
 	select {
-	case <-ch:
-		return true
+	case peerInfo := <-ch:
+		return peerInfo, true
 	case <-time.After(RESPONSE_TIMEOUT * time.Second):
 		log.Printf("[%s] No Pong from %s within timeout", s.selfId, peerAddr)
 		s.mu.Lock()
 		delete(s.pongConfirm, handshakeId)
 		s.mu.Unlock()
-		return false
+		return nil, false
 	}
+}
+
+func addressFromCtx(ctx context.Context) (string, error) {
+	peerInfo, ok := peer.FromContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("failed to extract peer")
+	}
+	host, _, err := net.SplitHostPort(peerInfo.Addr.String())
+	if err != nil {
+		return "", fmt.Errorf("invalid peer address")
+	}
+	return host, nil
 }

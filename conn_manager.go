@@ -18,7 +18,8 @@ const (
 
 type ConnectionManager struct {
 	server        *Server
-	addressBook   []string // List of all known peer addresses
+	addressBook   []string
+	peerInfo      map[string]*PeerInfo
 	activeConns   map[string]*grpc.ClientConn
 	eventBus      *EventBus
 	mu            sync.Mutex
@@ -30,6 +31,7 @@ func NewConnectionManager(id string, listenPort int, peers []string, eventBus *E
 	return &ConnectionManager{
 		server:        NewServer(id, listenPort, eventBus),
 		addressBook:   peers,
+		peerInfo:      make(map[string]*PeerInfo),
 		activeConns:   make(map[string]*grpc.ClientConn),
 		eventBus:      eventBus,
 		recheckPeriod: recheckPeriod,
@@ -60,7 +62,7 @@ func (cm *ConnectionManager) monitorPeer(peerAddr string) {
 		cm.mu.Unlock()
 
 		if !connected {
-			success := cm.server.TestConn(peerAddr)
+			info, success := cm.server.TestConn(peerAddr)
 			if success {
 				conn, err := grpc.NewClient(peerAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 				if err != nil {
@@ -69,11 +71,12 @@ func (cm *ConnectionManager) monitorPeer(peerAddr string) {
 				}
 				cm.mu.Lock()
 				cm.activeConns[peerAddr] = conn
+				cm.peerInfo[peerAddr] = info
 				cm.mu.Unlock()
 
 				log.Printf("[CM] Connected to %s", peerAddr)
 
-				cm.eventBus.Publish(NodeConnectedEvent{Addr: peerAddr})
+				cm.eventBus.Publish(NodeConnectedEvent{PeerInfo: *info})
 
 				go func() {
 					cm.keepAlive(peerAddr)
@@ -90,7 +93,7 @@ func (cm *ConnectionManager) keepAlive(peerAddr string) {
 
 	for range ticker.C {
 		for retry := range CONN_RETRY_COUNT {
-			ok := cm.server.TestConn(peerAddr)
+			info, ok := cm.server.TestConn(peerAddr)
 			if !ok {
 				if retry != CONN_RETRY_COUNT-1 {
 					log.Printf("[CM] Connection to %s failed ping, %d retries left", peerAddr, CONN_RETRY_COUNT-retry-1)
@@ -102,12 +105,15 @@ func (cm *ConnectionManager) keepAlive(peerAddr string) {
 				if conn, exists := cm.activeConns[peerAddr]; exists {
 					conn.Close()
 					delete(cm.activeConns, peerAddr)
-					cm.eventBus.Publish(NodeDisconnectedEvent{Addr: peerAddr})
+
+					// Failed connection test, use last known peer info in event
+					cm.eventBus.Publish(NodeDisconnectedEvent{PeerInfo: *cm.peerInfo[peerAddr]})
 				}
 				cm.mu.Unlock()
 				return
 			} else {
 				log.Printf("[CM] Heartbeat successful to %s", peerAddr)
+				cm.peerInfo[peerAddr] = info
 				break
 			}
 		}

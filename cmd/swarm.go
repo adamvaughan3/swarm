@@ -8,8 +8,7 @@ import (
 
 func main() {
 	port := flag.Int("port", 50051, "local port to bind the server")
-	peers := flag.String("peers", "", "comma-separated list of peer addresses")
-	// id := flag.String("id", "node1", "unique node identifier")
+	peers := flag.String("peers", "127.0.0.1:50052, 127.0.0.1:50053", "comma-separated list of peer addresses")
 	flag.Parse()
 
 	parts := strings.Split(*peers, ",")

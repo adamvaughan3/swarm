@@ -38,7 +38,7 @@ func (h *connStatsHandler) HandleRPC(ctx context.Context, s stats.RPCStats) {
 
 			// Publish the event
 			h.bus.Publish(PingLatencyEvent{
-				Addr:    addr,
+				Address: addr,
 				Latency: latency,
 			})
 		}

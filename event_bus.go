@@ -65,7 +65,7 @@ type Event interface {
 }
 
 type NodeConnectedEvent struct {
-	Addr string
+	PeerInfo
 }
 
 func (e NodeConnectedEvent) Type() string {
@@ -73,11 +73,11 @@ func (e NodeConnectedEvent) Type() string {
 }
 
 func (e NodeConnectedEvent) String() string {
-	return fmt.Sprintf("{Addr: %s}", e.Addr)
+	return fmt.Sprintf("{Id: %s, Address: %s}", e.Id, e.Address)
 }
 
 type NodeDisconnectedEvent struct {
-	Addr string
+	PeerInfo
 }
 
 func (e NodeDisconnectedEvent) Type() string {
@@ -85,12 +85,12 @@ func (e NodeDisconnectedEvent) Type() string {
 }
 
 func (e NodeDisconnectedEvent) String() string {
-	return fmt.Sprintf("{Addr: %s}", e.Addr)
+	return fmt.Sprintf("{Id: %s, Address: %s}", e.Id, e.Address)
 }
 
 type PingLatencyEvent struct {
 	Id      string
-	Addr    string
+	Address string
 	Latency time.Duration
 }
 
@@ -99,5 +99,5 @@ func (e PingLatencyEvent) Type() string {
 }
 
 func (e PingLatencyEvent) String() string {
-	return fmt.Sprintf("{ Id: %s, Addr: %s, Latency: %f }", e.Id, e.Addr, e.Latency.Seconds())
+	return fmt.Sprintf("{Address: %s, Latency: %f}", e.Address, e.Latency.Seconds())
 }
